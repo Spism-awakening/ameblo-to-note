@@ -1,0 +1,46 @@
+name: Ameblo to Note Sync
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # 毎時0分に自動実行（1時間ごと）
+  workflow_dispatch:        # GitHubの画面から手動実行も可能
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # data/published.json をコミットするために必要
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Run sync
+        env:
+          NOTE_EMAIL: ${{ secrets.NOTE_EMAIL }}
+          NOTE_PASSWORD: ${{ secrets.NOTE_PASSWORD }}
+          AMEBLO_RSS_URL: "https://ameblo.jp/pulinet/rss20.xml"
+        run: |
+          cd scripts
+          python main.py
+
+      - name: Save published cache
+        if: always()
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add data/published.json
+          git diff --staged --quiet || git commit -m "chore: update published articles cache [skip ci]"
+          git push
