@@ -37,7 +37,7 @@ jobs:
 
       - name: Run sync
         env:
-          NOTE_SESSION: ${{ secrets.NOTE_SESSION }}
+          NOTE_COOKIES: ${{ secrets.NOTE_COOKIES }}
           AMEBLO_RSS_URL: "https://ameblo.jp/pulinet/rss20.xml"
           DRAFT_MODE: ${{ github.event.inputs.draft_mode || 'false' }}
         run: |
