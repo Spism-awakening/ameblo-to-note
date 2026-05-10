@@ -7,15 +7,21 @@ AMEBLO_RSS_URL = os.getenv("AMEBLO_RSS_URL", "https://ameblo.jp/pulinet/rss20.xm
 DATA_FILE = Path(__file__).parent.parent / "data" / "published.json"
 
 
+def _ensure_data_file():
+    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not DATA_FILE.exists():
+        with open(DATA_FILE, "w") as f:
+            json.dump([], f)
+
+
 def load_published() -> set:
-    if DATA_FILE.exists():
-        with open(DATA_FILE) as f:
-            return set(json.load(f))
-    return set()
+    _ensure_data_file()
+    with open(DATA_FILE) as f:
+        return set(json.load(f))
 
 
 def save_published(published: set):
-    DATA_FILE.parent.mkdir(exist_ok=True)
+    _ensure_data_file()
     with open(DATA_FILE, "w") as f:
         json.dump(sorted(list(published)), f, ensure_ascii=False, indent=2)
 

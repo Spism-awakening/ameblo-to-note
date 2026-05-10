@@ -41,6 +41,10 @@ jobs:
         run: |
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git add data/published.json
-          git diff --staged --quiet || git commit -m "chore: update published articles cache [skip ci]"
-          git push
+          git add data/published.json 2>/dev/null || echo "published.json not found, skipping"
+          if git diff --staged --quiet; then
+            echo "変更なし。コミットをスキップします"
+          else
+            git commit -m "chore: update published articles cache [skip ci]"
+            git push
+          fi
