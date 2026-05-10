@@ -34,14 +34,13 @@ def _login(page) -> bool:
     _debug_inputs(page)
 
     try:
-        # メールアドレス入力（考えられるセレクタを網羅）
+        # メールアドレス入力
         email_input = page.locator(
+            'input[autocomplete="username"], '
             'input[type="email"], '
             'input[name="email"], '
             'input[placeholder*="メールアドレス"], '
-            'input[placeholder*="メール"], '
-            'input[autocomplete="email"], '
-            'input[placeholder*="email"]'
+            'input[placeholder*="mail@example.com"]'
         ).first
         email_input.wait_for(state="visible", timeout=15000)
         email_input.fill(NOTE_EMAIL)
