@@ -11,15 +11,37 @@ DRAFT_MODE = os.getenv("DRAFT_MODE", "false").lower() == "true"
 def _login(page) -> bool:
     page.goto("https://note.com/login?redirectPath=%2F")
     page.wait_for_load_state("networkidle")
+    time.sleep(2)
+
+    page.screenshot(path="/tmp/note_01_login_page.png")
+    print(f"  ログインページURL: {page.url}")
 
     try:
-        page.fill('input[name="email"]', NOTE_EMAIL, timeout=10000)
-        page.fill('input[name="password"]', NOTE_PASSWORD)
-        page.click('button[type="submit"]')
-        page.wait_for_url("https://note.com/", timeout=20000)
+        email_input = page.locator('input[type="email"], input[name="email"]').first
+        email_input.wait_for(timeout=10000)
+        email_input.fill(NOTE_EMAIL)
+        time.sleep(0.5)
+
+        password_input = page.locator('input[type="password"], input[name="password"]').first
+        password_input.fill(NOTE_PASSWORD)
+        time.sleep(0.5)
+
+        page.screenshot(path="/tmp/note_02_login_filled.png")
+
+        submit_btn = page.locator('button[type="submit"]').first
+        submit_btn.click()
+
+        # note.com ドメインであればOK（リダイレクト先を問わない）
+        page.wait_for_url(re.compile(r"note\.com"), timeout=20000)
+
+        page.screenshot(path="/tmp/note_03_after_login.png")
+        print(f"  ログイン後URL: {page.url}")
         return True
-    except PlaywrightTimeout:
-        print("ログインに失敗しました（タイムアウト）")
+
+    except PlaywrightTimeout as e:
+        page.screenshot(path="/tmp/note_error_login.png")
+        print(f"  ログインタイムアウト。現在URL: {page.url}")
+        print(f"  エラー詳細: {e}")
         return False
 
 
@@ -60,6 +82,9 @@ def publish_to_note(title: str, content: str, hashtags: list[str]) -> bool:
             page.wait_for_load_state("networkidle")
             time.sleep(3)
 
+            page.screenshot(path="/tmp/note_04_editor.png")
+            print(f"  エディタURL: {page.url}")
+
             # タイトル入力
             title_area = page.locator(
                 'textarea[placeholder*="記事タイトル"], textarea[placeholder*="タイトル"]'
@@ -84,9 +109,9 @@ def publish_to_note(title: str, content: str, hashtags: list[str]) -> bool:
                     page.keyboard.press("Enter")
                     time.sleep(0.5)
 
+            page.screenshot(path="/tmp/note_05_before_publish.png")
+
             if DRAFT_MODE:
-                # ---- 下書き保存 ----
-                # noteは自動下書き保存があるが、明示的に保存ボタンを探す
                 draft_btn = page.locator(
                     'button:has-text("下書き保存"), button:has-text("下書き")'
                 ).first
@@ -94,12 +119,11 @@ def publish_to_note(title: str, content: str, hashtags: list[str]) -> bool:
                     draft_btn.click()
                     time.sleep(2)
                 else:
-                    # ボタンが見つからない場合はnoteの自動保存に任せて3秒待つ
                     time.sleep(3)
-                print(f"下書き保存完了: {title}")
+                page.screenshot(path="/tmp/note_06_draft_saved.png")
+                print(f"  下書き保存完了: {title}")
                 return True
             else:
-                # ---- 公開 ----
                 publish_btn = page.locator(
                     'button:has-text("公開設定へ"), button:has-text("投稿")'
                 ).first
@@ -113,16 +137,16 @@ def publish_to_note(title: str, content: str, hashtags: list[str]) -> bool:
                     confirm.click()
 
                 page.wait_for_url(re.compile(r"note\.com/[^/]+/n/"), timeout=20000)
-                print(f"note公開完了: {title}\n  URL: {page.url}")
+                print(f"  公開完了: {title}\n  URL: {page.url}")
                 return True
 
         except PlaywrightTimeout as e:
-            print(f"タイムアウト: {e}")
             page.screenshot(path="/tmp/note_error.png")
+            print(f"タイムアウト: {e}")
             return False
         except Exception as e:
-            print(f"投稿エラー: {e}")
             page.screenshot(path="/tmp/note_error.png")
+            print(f"投稿エラー: {e}")
             return False
         finally:
             browser.close()
