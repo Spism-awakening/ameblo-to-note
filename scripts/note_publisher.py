@@ -9,7 +9,6 @@ DRAFT_MODE = os.getenv("DRAFT_MODE", "false").lower() == "true"
 
 
 def _debug_inputs(page):
-    """ページ上の全input要素を出力（セレクタ特定用）"""
     try:
         inputs = page.locator("input").all()
         print(f"  --- inputタグ一覧 ({len(inputs)}個) ---")
@@ -21,6 +20,21 @@ def _debug_inputs(page):
             print(f"  [{i}] type={t} name={n} placeholder={ph} autocomplete={ac}")
     except Exception as e:
         print(f"  input確認エラー: {e}")
+
+
+def _debug_buttons(page):
+    try:
+        buttons = page.locator("button").all()
+        print(f"  --- buttonタグ一覧 ({len(buttons)}個) ---")
+        for i, btn in enumerate(buttons):
+            try:
+                t = btn.get_attribute("type") or ""
+                text = (btn.inner_text() or "").replace("\n", " ")[:30]
+                print(f"  [{i}] type={t} text={text}")
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"  button確認エラー: {e}")
 
 
 def _login(page) -> bool:
@@ -63,9 +77,16 @@ def _login(page) -> bool:
         time.sleep(0.5)
 
         page.screenshot(path="/tmp/note_02_login_filled.png")
+        _debug_buttons(page)
 
-        submit_btn = page.locator('button[type="submit"]').first
-        submit_btn.click()
+        submit_btn = page.locator(
+            'button[type="submit"], '
+            'button:has-text("ログイン"), '
+            'button:has-text("サインイン"), '
+            'button:has-text("次へ"), '
+            'input[type="submit"]'
+        ).first
+        submit_btn.click(timeout=15000)
 
         page.wait_for_url(re.compile(r"note\.com"), timeout=20000)
         page.screenshot(path="/tmp/note_03_after_login.png")
