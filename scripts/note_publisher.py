@@ -10,11 +10,14 @@ DRAFT_MODE = os.getenv("DRAFT_MODE", "false").lower() == "true"
 
 def _setup_session(context) -> bool:
     """全CookieをセットしてログインをスキップするJSON形式"""
-    if not NOTE_COOKIES:
+    raw_value = os.environ.get("NOTE_COOKIES", "")
+    print(f"  [DEBUG] NOTE_COOKIES 長さ: {len(raw_value)} 文字")
+    print(f"  [DEBUG] 環境変数一覧（NOTE_*）: {[k for k in os.environ if k.startswith('NOTE')]}")
+    if not raw_value:
         print("  NOTE_COOKIES が設定されていません")
         return False
     try:
-        raw = json.loads(NOTE_COOKIES)
+        raw = json.loads(raw_value)
         cookies = []
         for c in raw:
             cookie = {
