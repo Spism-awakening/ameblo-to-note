@@ -8,21 +8,58 @@ NOTE_PASSWORD = os.getenv("NOTE_PASSWORD", "")
 DRAFT_MODE = os.getenv("DRAFT_MODE", "false").lower() == "true"
 
 
+def _debug_inputs(page):
+    """ページ上の全input要素を出力（セレクタ特定用）"""
+    try:
+        inputs = page.locator("input").all()
+        print(f"  --- inputタグ一覧 ({len(inputs)}個) ---")
+        for i, inp in enumerate(inputs):
+            t = inp.get_attribute("type") or ""
+            n = inp.get_attribute("name") or ""
+            ph = inp.get_attribute("placeholder") or ""
+            ac = inp.get_attribute("autocomplete") or ""
+            print(f"  [{i}] type={t} name={n} placeholder={ph} autocomplete={ac}")
+    except Exception as e:
+        print(f"  input確認エラー: {e}")
+
+
 def _login(page) -> bool:
     page.goto("https://note.com/login?redirectPath=%2F")
     page.wait_for_load_state("networkidle")
-    time.sleep(2)
+    time.sleep(3)  # JSレンダリング待ち
 
     page.screenshot(path="/tmp/note_01_login_page.png")
     print(f"  ログインページURL: {page.url}")
+    print(f"  タイトル: {page.title()}")
+    _debug_inputs(page)
 
     try:
-        email_input = page.locator('input[type="email"], input[name="email"]').first
-        email_input.wait_for(timeout=10000)
+        # メールアドレス入力（考えられるセレクタを網羅）
+        email_input = page.locator(
+            'input[type="email"], '
+            'input[name="email"], '
+            'input[placeholder*="メールアドレス"], '
+            'input[placeholder*="メール"], '
+            'input[autocomplete="email"], '
+            'input[placeholder*="email"]'
+        ).first
+        email_input.wait_for(state="visible", timeout=15000)
         email_input.fill(NOTE_EMAIL)
         time.sleep(0.5)
 
-        password_input = page.locator('input[type="password"], input[name="password"]').first
+        # 2ステップログイン対応（「次へ」ボタンがある場合）
+        next_btn = page.locator(
+            'button:has-text("次へ"), button:has-text("続ける"), button:has-text("Next")'
+        ).first
+        if next_btn.is_visible(timeout=2000):
+            print("  「次へ」ボタンを検出 → クリック")
+            next_btn.click()
+            time.sleep(2)
+            _debug_inputs(page)
+
+        # パスワード入力
+        password_input = page.locator('input[type="password"]').first
+        password_input.wait_for(state="visible", timeout=10000)
         password_input.fill(NOTE_PASSWORD)
         time.sleep(0.5)
 
@@ -31,9 +68,7 @@ def _login(page) -> bool:
         submit_btn = page.locator('button[type="submit"]').first
         submit_btn.click()
 
-        # note.com ドメインであればOK（リダイレクト先を問わない）
         page.wait_for_url(re.compile(r"note\.com"), timeout=20000)
-
         page.screenshot(path="/tmp/note_03_after_login.png")
         print(f"  ログイン後URL: {page.url}")
         return True
@@ -83,20 +118,16 @@ def publish_to_note(title: str, content: str, hashtags: list[str]) -> bool:
             time.sleep(3)
 
             page.screenshot(path="/tmp/note_04_editor.png")
-            print(f"  エディタURL: {page.url}")
 
-            # タイトル入力
             title_area = page.locator(
                 'textarea[placeholder*="記事タイトル"], textarea[placeholder*="タイトル"]'
             ).first
             title_area.fill(title)
             time.sleep(0.5)
 
-            # 本文入力
             _input_to_editor(page, content)
             time.sleep(1)
 
-            # ハッシュタグ設定
             tag_btn = page.locator('button[aria-label*="タグ"], button:has-text("タグ")').first
             if tag_btn.is_visible(timeout=3000):
                 tag_btn.click()
