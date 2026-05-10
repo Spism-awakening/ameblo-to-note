@@ -1,28 +1,43 @@
+import json
 import os
 import re
 import time
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
-NOTE_SESSION = os.getenv("NOTE_SESSION", "")
+NOTE_COOKIES = os.getenv("NOTE_COOKIES", "")
 DRAFT_MODE = os.getenv("DRAFT_MODE", "false").lower() == "true"
 
 
 def _setup_session(context) -> bool:
-    """_note_session Cookieをセットしてログインをスキップ"""
-    if not NOTE_SESSION:
-        print("  NOTE_SESSION が設定されていません")
+    """全CookieをセットしてログインをスキップするJSON形式"""
+    if not NOTE_COOKIES:
+        print("  NOTE_COOKIES が設定されていません")
         return False
-
-    context.add_cookies([{
-        "name": "_note_session",
-        "value": NOTE_SESSION,
-        "domain": ".note.com",  # ドット付き → editor.note.com にも適用される
-        "path": "/",
-        "httpOnly": True,
-        "secure": True,
-        "sameSite": "Lax",
-    }])
-    return True
+    try:
+        raw = json.loads(NOTE_COOKIES)
+        cookies = []
+        for c in raw:
+            cookie = {
+                "name": c["name"],
+                "value": c["value"],
+                "domain": c["domain"],
+                "path": c.get("path", "/"),
+            }
+            if c.get("secure"):
+                cookie["secure"] = True
+            if c.get("httpOnly"):
+                cookie["httpOnly"] = True
+            if c.get("expirationDate"):
+                cookie["expires"] = c["expirationDate"]
+            if c.get("sameSite") in ("Strict", "Lax", "None"):
+                cookie["sameSite"] = c["sameSite"]
+            cookies.append(cookie)
+        context.add_cookies(cookies)
+        print(f"  Cookie {len(cookies)}件をセット")
+        return True
+    except Exception as e:
+        print(f"  Cookie解析エラー: {e}")
+        return False
 
 
 def _verify_login(page) -> bool:
