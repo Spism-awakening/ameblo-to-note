@@ -1,9 +1,11 @@
 import os
+import re
 import time
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 NOTE_EMAIL = os.getenv("NOTE_EMAIL", "")
 NOTE_PASSWORD = os.getenv("NOTE_PASSWORD", "")
+DRAFT_MODE = os.getenv("DRAFT_MODE", "false").lower() == "true"
 
 
 def _login(page) -> bool:
@@ -26,7 +28,6 @@ def _input_to_editor(page, text: str):
     editor.click()
     time.sleep(0.5)
 
-    # 段落ごとに入力（大量テキストの安定入力）
     paragraphs = text.split("\n")
     for i, para in enumerate(paragraphs):
         if para:
@@ -36,6 +37,9 @@ def _input_to_editor(page, text: str):
 
 
 def publish_to_note(title: str, content: str, hashtags: list[str]) -> bool:
+    mode_label = "【下書き保存】" if DRAFT_MODE else "【公開】"
+    print(f"{mode_label} noteへ投稿開始: {title}")
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
@@ -52,7 +56,6 @@ def publish_to_note(title: str, content: str, hashtags: list[str]) -> bool:
             if not _login(page):
                 return False
 
-            # 新規記事作成ページへ
             page.goto("https://note.com/notes/new")
             page.wait_for_load_state("networkidle")
             time.sleep(3)
@@ -68,8 +71,7 @@ def publish_to_note(title: str, content: str, hashtags: list[str]) -> bool:
             _input_to_editor(page, content)
             time.sleep(1)
 
-            # ハッシュタグ設定（設定パネルを開く）
-            # noteのタグ入力はエディタ上部のボタンから
+            # ハッシュタグ設定
             tag_btn = page.locator('button[aria-label*="タグ"], button:has-text("タグ")').first
             if tag_btn.is_visible(timeout=3000):
                 tag_btn.click()
@@ -82,20 +84,37 @@ def publish_to_note(title: str, content: str, hashtags: list[str]) -> bool:
                     page.keyboard.press("Enter")
                     time.sleep(0.5)
 
-            # 公開ボタン
-            publish_btn = page.locator('button:has-text("公開設定へ"), button:has-text("投稿")').first
-            publish_btn.click(timeout=10000)
-            time.sleep(2)
+            if DRAFT_MODE:
+                # ---- 下書き保存 ----
+                # noteは自動下書き保存があるが、明示的に保存ボタンを探す
+                draft_btn = page.locator(
+                    'button:has-text("下書き保存"), button:has-text("下書き")'
+                ).first
+                if draft_btn.is_visible(timeout=5000):
+                    draft_btn.click()
+                    time.sleep(2)
+                else:
+                    # ボタンが見つからない場合はnoteの自動保存に任せて3秒待つ
+                    time.sleep(3)
+                print(f"下書き保存完了: {title}")
+                return True
+            else:
+                # ---- 公開 ----
+                publish_btn = page.locator(
+                    'button:has-text("公開設定へ"), button:has-text("投稿")'
+                ).first
+                publish_btn.click(timeout=10000)
+                time.sleep(2)
 
-            # 確認ダイアログ（あれば）
-            confirm = page.locator('button:has-text("公開する"), button:has-text("投稿する")').first
-            if confirm.is_visible(timeout=5000):
-                confirm.click()
+                confirm = page.locator(
+                    'button:has-text("公開する"), button:has-text("投稿する")'
+                ).first
+                if confirm.is_visible(timeout=5000):
+                    confirm.click()
 
-            page.wait_for_url(re.compile(r"note\.com/[^/]+/n/"), timeout=20000)
-            published_url = page.url
-            print(f"note投稿完了: {title}\n  URL: {published_url}")
-            return True
+                page.wait_for_url(re.compile(r"note\.com/[^/]+/n/"), timeout=20000)
+                print(f"note公開完了: {title}\n  URL: {page.url}")
+                return True
 
         except PlaywrightTimeout as e:
             print(f"タイムアウト: {e}")
@@ -107,6 +126,3 @@ def publish_to_note(title: str, content: str, hashtags: list[str]) -> bool:
             return False
         finally:
             browser.close()
-
-
-import re  # noqa: E402 (モジュール末尾でもOK)
