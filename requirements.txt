@@ -1,4 +1,4 @@
 feedparser==6.0.11
 beautifulsoup4==4.12.3
-playwright==1.44.0
+playwright>=1.49.0
 python-dotenv==1.0.1
