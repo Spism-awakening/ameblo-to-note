@@ -16,7 +16,7 @@ def _setup_session(context) -> bool:
     context.add_cookies([{
         "name": "_note_session",
         "value": NOTE_SESSION,
-        "domain": "note.com",
+        "domain": ".note.com",  # ドット付き → editor.note.com にも適用される
         "path": "/",
         "httpOnly": True,
         "secure": True,
