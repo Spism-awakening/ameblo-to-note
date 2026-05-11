@@ -244,9 +244,13 @@ def _input_image(page, url: str):
 
     inserted = False
     try:
-        page.keyboard.press("End")
+        # エディタにフォーカスし、カーソルをドキュメント末尾に移動してから画像を挿入
+        # (画像ボタンクリック前に末尾移動しないと先頭に挿入されてしまう)
+        page.evaluate("() => { const ed = document.querySelector('.ProseMirror'); if (ed) ed.focus(); }")
+        page.keyboard.press("Control+End")
+        time.sleep(0.2)
         page.keyboard.press("Enter")
-        time.sleep(0.5)
+        time.sleep(0.3)
 
         # --- 方法1: ボタンクリック → サブメニュー「画像をアップロード」→ ファイル選択 → クロップ確定 ---
         try:
