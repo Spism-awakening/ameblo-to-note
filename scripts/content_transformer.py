@@ -50,7 +50,13 @@ def _get_ameblo_emoji(src: str) -> str:
 def _is_empty_p(tag: Tag) -> bool:
     """`&nbsp;` や全角スペースのみの実質的に空の p タグ"""
     text = tag.get_text()
-    return text.strip(" 　 \t\n\r") == ""
+    return text.strip(" 　 \t\n\r") == ""
+
+
+def _is_short_hr(tag: Tag) -> bool:
+    """「───」などの装飾的な短い全角ダッシュ区切り線をスキップ"""
+    text = tag.get_text().strip(" 　 \t\n\r")
+    return 1 <= len(text) <= 8 and bool(re.match(r"^[─━ー\-]+$", text))
 
 
 def _is_bullet_p(tag: Tag) -> bool:
@@ -90,7 +96,6 @@ def _process_inline(node, in_bold: bool = False) -> str:
 
     elif name == "img":
         src = node.get("src", "")
-        # ユーザー画像（記事内の写真等）はスキップ
         if "user_images" in src:
             return ""
         return _get_ameblo_emoji(src)
@@ -100,10 +105,8 @@ def _process_inline(node, in_bold: bool = False) -> str:
 
     elif name == "a":
         href = node.get("href", "")
-        # 記事画像へのリンクはスキップ
         if node.find("img") and "user_images" in href:
             return ""
-        # テキストリンクは URL を展開
         if not node.find("img"):
             return href
         return ""
@@ -119,12 +122,10 @@ def _process_inline(node, in_bold: bool = False) -> str:
 def _process_bullet_p(tag: Tag) -> list[str]:
     """丸ブルー箇条書き p タグを ・ リストに変換"""
     raw = "".join(_process_inline(c) for c in tag.children)
-    # ・ で各項目を分割（_get_ameblo_emoji が char3/533.png を ・ に変換済み）
     items = raw.split("・")
     result = []
     for item in items:
-        # 改行と &nbsp; を除去して一行にまとめる
-        parts = [s.strip(" 　 \t") for s in item.split("\n")]
+        parts = [s.strip(" 　 \t") for s in item.split("\n")]
         text = "".join(s for s in parts if s)
         if text:
             result.append(f"・{text}")
@@ -132,8 +133,22 @@ def _process_bullet_p(tag: Tag) -> list[str]:
 
 
 def _is_voice_section(tag: Tag) -> bool:
-    """お客様の声セクションの開始 p タグを判定"""
     return tag.name == "p" and "体験者のリアルな声" in tag.get_text()
+
+
+def _apply_arrow_before_ogp(lines: list[str]) -> None:
+    """OGP カード直前の行が「↓テキスト」形式の場合、矢印を削除して「↓　↓　↓」を追加"""
+    for i in range(len(lines) - 1, -1, -1):
+        if lines[i].strip():
+            last = lines[i]
+            # 既に3矢印ならそのまま
+            if "↓　↓" in last or "↓ ↓" in last:
+                break
+            # 先頭が↓で始まるテキスト行の矢印を除去して3矢印を挿入
+            if last.startswith("↓"):
+                lines[i] = re.sub(r"^↓\s*", "", last).strip()
+                lines.append("↓　↓　↓")
+            break
 
 
 def _get_top_elements(soup: BeautifulSoup):
@@ -163,22 +178,17 @@ def html_to_plain(html: str) -> str:
         # ── h3：フッター定型文の直前に区切り線を挿入 ──
         if el.name == "h3":
             if not footer_inserted:
-                lines.append("")
                 lines.append("---")
-                lines.append("")
                 footer_inserted = True
             content_span = el.find("span", attrs={"data-entrydesign-content": True})
             src = content_span if content_span else el
             raw_text = "".join(_process_inline(c) for c in src.children).strip()
-            # h3 見出しは太字マーカー不要なので除去
             text = re.sub(r"\x02|\x03", "", raw_text)
             lines.append(f"【{text}】")
-            lines.append("")
             continue
 
         # ── p タグ ──
         if el.name == "p":
-            # YouTube iframe を含む場合
             iframe = el.find("iframe")
             if iframe:
                 src = iframe.get("src", "")
@@ -187,26 +197,23 @@ def html_to_plain(html: str) -> str:
                 lines.append("")
                 continue
 
-            # 空の p タグ → 空行を保持
             if _is_empty_p(el):
                 lines.append("")
                 continue
 
-            # お客様の声セクション直前に区切り線を挿入（フッター後のみ）
+            # 短い装飾ダッシュ（「───」等）をスキップ
+            if _is_short_hr(el):
+                continue
+
             if footer_inserted and not voice_inserted and _is_voice_section(el):
-                lines.append("")
                 lines.append("---")
-                lines.append("")
                 voice_inserted = True
 
-            # 丸ブルー箇条書き
             if _is_bullet_p(el):
                 lines.extend(_process_bullet_p(el))
                 continue
 
-            # 通常の p タグ
             content = "".join(_process_inline(c) for c in el.children)
-            # <br>\n のような HTML ソース改行との重複を 1 改行に正規化
             content = re.sub(r"\n{2,}", "\n", content)
             if content.strip():
                 for sub in content.split("\n"):
@@ -220,21 +227,18 @@ def html_to_plain(html: str) -> str:
             a_tag = el.find("a", class_="ogpCard_link")
             if a_tag:
                 href = a_tag.get("href", "")
-                title_span = a_tag.find("span", class_="ogpCard_title")
-                title = title_span.get_text().strip() if title_span else href
-                lines.append("")
-                lines.append(f"《{title}》")
+                # 直前の「↓テキスト」行を「↓　↓　↓」に変換
+                _apply_arrow_before_ogp(lines)
                 lines.append(href)
-                lines.append("")
             continue
 
-    # 連続する空行を最大 2 行に制限
+    # 連続する空行を最大 1 行に制限
     result: list[str] = []
     blank_count = 0
     for line in lines:
         if line.strip() == "":
             blank_count += 1
-            if blank_count <= 2:
+            if blank_count <= 1:
                 result.append("")
         else:
             blank_count = 0
@@ -257,7 +261,6 @@ def select_hashtags(text: str, count: int = 5) -> list[str]:
 
 def transform_for_note(title: str, html_content: str) -> dict:
     content = html_to_plain(html_content)
-    # 太字マーカーを除いたプレーンテキストでハッシュタグを選定
     plain_for_tags = re.sub(r"\x02|\x03", "", content)
     hashtags = select_hashtags(title + " " + plain_for_tags)
     return {

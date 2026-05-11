@@ -74,13 +74,22 @@ def _input_to_editor(page, text: str):
     editor.click()
     time.sleep(0.5)
 
-    # 太文字マーカー(\x02...\x03)で分割し、太文字部分はCtrl+Bを適用
+    # 太文字マーカー(\x02...\x03)で分割し、太文字部分はCtrl+B（keydown/keyup）を適用
     parts = _BOLD_RE.split(text)
+    print(f"  [DEBUG] 太字パーツ数: {len(parts)}, 太字ブロック: {(len(parts)-1)//2}個")
     for i, part in enumerate(parts):
+        if not part:
+            continue
         if i % 2 == 1:  # 奇数インデックス = 太文字コンテンツ
-            page.keyboard.press("Control+b")
+            page.keyboard.down("Control")
+            page.keyboard.press("b")
+            page.keyboard.up("Control")
+            time.sleep(0.05)
             _type_text(page, part)
-            page.keyboard.press("Control+b")
+            page.keyboard.down("Control")
+            page.keyboard.press("b")
+            page.keyboard.up("Control")
+            time.sleep(0.05)
         else:
             _type_text(page, part)
 
