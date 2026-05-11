@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import re
@@ -181,70 +182,146 @@ def _input_image(page, url: str):
 
     inserted = False
     try:
-        # 新しい行へ移動
         page.keyboard.press("End")
         page.keyboard.press("Enter")
         time.sleep(0.5)
 
-        # 方法1: note の画像アップロードボタン経由
+        # --- 方法1: ボタンクリック → サブメニュー → ファイル選択 ---
         try:
-            with page.expect_file_chooser(timeout=8000) as fc_info:
-                # 空行にホバーして「+」ボタンを表示させる
-                editor = page.locator(".ProseMirror")
-                paragraphs = editor.locator("p")
-                last_idx = paragraphs.count() - 1
-                if last_idx >= 0:
-                    paragraphs.nth(last_idx).hover()
-                    time.sleep(0.4)
+            img_btn = page.locator('button[aria-label*="画像"]').first
+            img_btn.wait_for(state="visible", timeout=3000)
+            img_btn.click()
+            time.sleep(0.8)
 
-                # 画像追加ボタンを複数セレクタで試す
-                btn_selectors = [
-                    'button[aria-label*="画像"]',
-                    'button[title*="画像"]',
-                    'button[aria-label*="image"]',
-                    'label[for*="image"]',
-                    'label[for*="photo"]',
-                    '[class*="imageUpload"]',
-                    '[class*="ImageUpload"]',
-                    '[data-testid*="image"]',
-                ]
-                for sel in btn_selectors:
-                    btn = page.locator(sel).first
-                    try:
-                        if btn.is_visible(timeout=400):
-                            btn.click()
-                            print(f"  画像ボタンクリック: {sel}")
-                            break
-                    except Exception:
-                        continue
-                else:
-                    raise Exception("画像ボタンが見つかりません")
-
-            fc_info.value.set_files(path)
-            time.sleep(4)
-            inserted = True
-            print(f"  画像挿入完了（ボタン経由）: {url}")
-        except Exception as e1:
-            print(f"  方法1（ボタン）失敗: {e1}")
-
-        # 方法2: input[type=file] に直接 set_input_files
-        if not inserted:
+            # クリック後に表示された要素をデバッグ出力
             try:
-                file_inputs = page.locator('input[type="file"]')
-                count = file_inputs.count()
-                print(f"  file input 数: {count}")
-                for i in range(count):
-                    inp = file_inputs.nth(i)
-                    try:
-                        inp.set_input_files(path)
+                elems = page.evaluate("""() => {
+                    return Array.from(document.querySelectorAll(
+                        'button, label, [role="menuitem"], [role="option"], li, a'
+                    ))
+                    .filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; })
+                    .map(el => ({
+                        tag: el.tagName,
+                        text: (el.innerText || '').trim().substring(0, 50).replace(/\\n/g, ' '),
+                        aria: el.getAttribute('aria-label') || '',
+                        cls: (el.className || '').substring(0, 80)
+                    }));
+                }""")
+                print("  [DEBUG] ボタンクリック後の表示要素:")
+                for e in elems:
+                    if e["text"] or e["aria"]:
+                        print(f"    {e['tag']} | {e['text']!r} | aria={e['aria']!r}")
+            except Exception:
+                pass
+
+            page.screenshot(path="/tmp/note_img_menu.png")
+
+            # サブメニューのアップロードオプションを探してクリック
+            submenu_selectors = [
+                'button:has-text("PCから")',
+                'button:has-text("ファイル")',
+                'button:has-text("アップロード")',
+                'button:has-text("画像をアップロード")',
+                'button:has-text("ローカル")',
+                '[role="menuitem"]:has-text("画像")',
+                '[role="menuitem"]:has-text("アップロード")',
+                '[role="menuitem"]:has-text("ファイル")',
+                'li:has-text("PC")',
+                'li:has-text("ファイル")',
+                'li:has-text("アップロード")',
+            ]
+            for sel in submenu_selectors:
+                try:
+                    elem = page.locator(sel).first
+                    if elem.is_visible(timeout=500):
+                        with page.expect_file_chooser(timeout=6000) as fc_info:
+                            elem.click()
+                        fc_info.value.set_files(path)
                         time.sleep(4)
                         inserted = True
-                        print(f"  画像挿入完了（file input #{i}）: {url}")
+                        print(f"  画像挿入完了（サブメニュー {sel}）")
                         break
-                    except Exception as ei:
-                        print(f"  file input #{i} 失敗: {ei}")
+                except Exception:
+                    continue
+
+            # Escape でメニューを閉じる
+            if not inserted:
+                page.keyboard.press("Escape")
+                time.sleep(0.3)
+        except Exception as e1:
+            print(f"  方法1（ボタン+メニュー）失敗: {e1}")
+
+        # --- 方法2: paste イベント（base64 → File → ClipboardEvent） ---
+        if not inserted:
+            try:
+                ext = os.path.splitext(path)[-1].lower().lstrip(".")
+                mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+                        "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/jpeg")
+                with open(path, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode()
+                result = page.evaluate(f"""async () => {{
+                    const b64 = '{b64}';
+                    const mime = '{mime}';
+                    const ext = '{ext}';
+                    const bytes = atob(b64);
+                    const arr = new Uint8Array(bytes.length);
+                    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+                    const blob = new Blob([arr], {{type: mime}});
+                    const file = new File([blob], 'image.' + ext, {{type: mime}});
+                    const dt = new DataTransfer();
+                    dt.items.add(file);
+                    const ed = document.querySelector('.ProseMirror');
+                    if (!ed) return 'no-editor';
+                    ed.focus();
+                    ed.dispatchEvent(new ClipboardEvent('paste', {{clipboardData: dt, bubbles: true, cancelable: true}}));
+                    return 'ok';
+                }}""")
+                if result == "ok":
+                    time.sleep(3)
+                    inserted = True
+                    print(f"  画像挿入完了（pasteイベント）")
+                else:
+                    print(f"  方法2（paste）結果: {result}")
             except Exception as e2:
-                print(f"  方法2（file input）失敗: {e2}")
+                print(f"  方法2（paste）失敗: {e2}")
+
+        # --- 方法3: drop イベント ---
+        if not inserted:
+            try:
+                ext = os.path.splitext(path)[-1].lower().lstrip(".")
+                mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+                        "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/jpeg")
+                with open(path, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode()
+                result = page.evaluate(f"""async () => {{
+                    const b64 = '{b64}';
+                    const mime = '{mime}';
+                    const ext = '{ext}';
+                    const bytes = atob(b64);
+                    const arr = new Uint8Array(bytes.length);
+                    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+                    const blob = new Blob([arr], {{type: mime}});
+                    const file = new File([blob], 'image.' + ext, {{type: mime}});
+                    const dt = new DataTransfer();
+                    dt.items.add(file);
+                    const ed = document.querySelector('.ProseMirror');
+                    if (!ed) return 'no-editor';
+                    const rect = ed.getBoundingClientRect();
+                    const opts = {{dataTransfer: dt, bubbles: true, cancelable: true,
+                                   clientX: rect.left + 20, clientY: rect.bottom - 10}};
+                    ed.dispatchEvent(new DragEvent('dragenter', opts));
+                    ed.dispatchEvent(new DragEvent('dragover', opts));
+                    ed.dispatchEvent(new DragEvent('drop', opts));
+                    return 'ok';
+                }}""")
+                if result == "ok":
+                    time.sleep(3)
+                    inserted = True
+                    print(f"  画像挿入完了（dropイベント）")
+                else:
+                    print(f"  方法3（drop）結果: {result}")
+            except Exception as e3:
+                print(f"  方法3（drop）失敗: {e3}")
 
         if not inserted:
             print(f"  画像挿入失敗（全方法）: {url}")
