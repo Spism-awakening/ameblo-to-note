@@ -71,6 +71,15 @@ def _has_large_font(tag: Tag) -> bool:
     style = tag.get("style", "").replace(" ", "")
     return "font-size:1.4em" in style
 
+def _is_heading_p(tag: Tag) -> bool:
+    """pタグ全体が font-size:1.4em の見出し相当の段落かどうか"""
+    large_spans = tag.find_all("span", style=lambda s: s and "1.4em" in s.replace(" ", ""))
+    if not large_spans:
+        return False
+    large_text = "".join(s.get_text() for s in large_spans).strip()
+    total_text = tag.get_text().strip()
+    return bool(large_text) and large_text == total_text
+
 
 def _process_inline(node, in_bold: bool = False) -> str:
     """HTML ノードをインラインテキストに再帰変換。in_bold で二重マーカーを防ぐ"""
@@ -184,7 +193,7 @@ def html_to_plain(html: str) -> str:
             src = content_span if content_span else el
             raw_text = "".join(_process_inline(c) for c in src.children).strip()
             text = re.sub(r"\x02|\x03", "", raw_text)
-            lines.append(f"【{text}】")
+            lines.append(f"\x06{text}\x07")  # 見出しマーカー
             continue
 
         # ── p タグ ──
@@ -211,6 +220,14 @@ def html_to_plain(html: str) -> str:
 
             if _is_bullet_p(el):
                 lines.extend(_process_bullet_p(el))
+                continue
+
+            # pタグ全体が 1.4em の見出し相当 → 見出しマーカーで出力
+            if _is_heading_p(el):
+                raw = "".join(_process_inline(c) for c in el.children)
+                text = re.sub(r"\x02|\x03|\n", "", raw).strip()
+                if text:
+                    lines.append(f"\x06{text}\x07")
                 continue
 
             content = "".join(_process_inline(c) for c in el.children)
