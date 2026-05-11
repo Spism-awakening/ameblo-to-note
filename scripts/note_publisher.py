@@ -255,7 +255,7 @@ def _input_image(page, url: str):
         # --- 方法1: ボタンクリック → サブメニュー「画像をアップロード」→ ファイル選択 → クロップ確定 ---
         try:
             img_btn = page.locator('button[aria-label*="画像"]').first
-            img_btn.wait_for(state="visible", timeout=3000)
+            img_btn.wait_for(state="visible", timeout=5000)
             img_btn.click()
             time.sleep(0.8)
 
@@ -331,7 +331,12 @@ def _input_to_editor(page, text: str):
             if not seg:
                 continue
             if j == 0:
-                _input_segment_with_images(page, seg)
+                if k == 0:
+                    # 本文（HR前）は画像マーカーを除去してテキストのみ挿入
+                    _input_segment(page, _IMAGE_RE.sub("", seg))
+                else:
+                    # 定型文（HR以降）は画像を挿入
+                    _input_segment_with_images(page, seg)
             else:
                 # \x04 以降：1行目が OGP URL、残りは通常テキスト（画像含む）
                 first_newline = seg.find("\n")
@@ -339,7 +344,10 @@ def _input_to_editor(page, text: str):
                     _input_ogp_url(page, seg)
                 else:
                     _input_ogp_url(page, seg[:first_newline])
-                    _input_segment_with_images(page, seg[first_newline:])
+                    if k == 0:
+                        _input_segment(page, _IMAGE_RE.sub("", seg[first_newline:]))
+                    else:
+                        _input_segment_with_images(page, seg[first_newline:])
 
 
 def publish_to_note(title: str, content: str, hashtags: list[str]) -> bool:
