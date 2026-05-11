@@ -1,7 +1,9 @@
 import json
 import os
 import re
+import tempfile
 import time
+import urllib.request
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 NOTE_COOKIES = os.getenv("NOTE_COOKIES", "")
@@ -60,10 +62,9 @@ def _verify_login(page) -> bool:
 _BOLD_RE = re.compile(r'\x02(.*?)\x03', re.DOTALL)
 _HEADING_RE = re.compile(r'\x06(.*?)\x07', re.DOTALL)
 _IMAGE_RE = re.compile(r'\x08(.*?)\x09', re.DOTALL)
-_OGP_MARKER = "\x04"  # OGP URL マーカー（content_transformer.py と対応）
-_HR_MARKER = "\x05"   # 区切り線マーカー（content_transformer.py と対応）
-_IMAGE_START = "\x08"  # 画像 URL マーカー開始
-_IMAGE_END = "\x09"    # 画像 URL マーカー終了
+_IMAGE_SPLIT_RE = re.compile(r'(\x08.*?\x09)', re.DOTALL)
+_OGP_MARKER = "\x04"
+_HR_MARKER = "\x05"
 
 
 def _type_text(page, text: str):
@@ -76,7 +77,7 @@ def _type_text(page, text: str):
 
 
 def _insert_html(page, text: str) -> bool:
-    """太字・見出し・画像マーカーを HTML タグに変換して execCommand で挿入する。成功したら True"""
+    """太字・見出しマーカーを HTML タグに変換して execCommand で挿入する。成功したら True"""
     # 見出しマーカー(\x06...\x07) → <h2> タグ（前後の改行も吸収）
     html = re.sub(
         r"\n?\x06(.*?)\x07\n?",
@@ -87,11 +88,6 @@ def _insert_html(page, text: str) -> bool:
     # 太字マーカー(\x02...\x03) → <strong> タグ
     html = _BOLD_RE.sub(
         lambda m: "<strong>" + m.group(1).replace("\n", "<br>") + "</strong>",
-        html,
-    )
-    # 画像マーカー(\x08...\x09) → <img> タグ（前後に改行を入れて独立した行に）
-    html = _IMAGE_RE.sub(
-        lambda m: '<br><img src="' + m.group(1) + '" style="max-width:100%"><br>',
         html,
     )
     html = re.sub(r"\n", "<br>", html)
@@ -147,13 +143,127 @@ def _input_hr(page):
 
 def _input_ogp_url(page, url: str):
     """OGP カード用 URL を入力し、noteが OGP 変換するまで待機する"""
-    # 確実に新しい行へ移動してから URL を入力
     page.keyboard.press("End")
     page.keyboard.press("Enter")
     page.keyboard.type(url.strip(), delay=5)
     page.keyboard.press("Enter")
     print(f"  OGPカード変換待機中: {url.strip()}")
     time.sleep(4)
+
+
+def _download_image(url: str) -> str:
+    """画像URLをダウンロードして一時ファイルパスを返す。失敗時は空文字"""
+    try:
+        ext = os.path.splitext(url.split("?")[0])[-1]
+        if ext.lower() not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+            ext = ".jpg"
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            tmp.write(resp.read())
+        tmp.close()
+        print(f"  画像ダウンロード完了: {tmp.name} ({url})")
+        return tmp.name
+    except Exception as e:
+        print(f"  画像ダウンロード失敗: {e} ({url})")
+        return ""
+
+
+def _input_image(page, url: str):
+    """画像をダウンロードしてnoteエディタにアップロード挿入する"""
+    print(f"  画像挿入開始: {url}")
+    path = _download_image(url)
+    if not path:
+        return
+
+    inserted = False
+    try:
+        # 新しい行へ移動
+        page.keyboard.press("End")
+        page.keyboard.press("Enter")
+        time.sleep(0.5)
+
+        # 方法1: note の画像アップロードボタン経由
+        try:
+            with page.expect_file_chooser(timeout=8000) as fc_info:
+                # 空行にホバーして「+」ボタンを表示させる
+                editor = page.locator(".ProseMirror")
+                paragraphs = editor.locator("p")
+                last_idx = paragraphs.count() - 1
+                if last_idx >= 0:
+                    paragraphs.nth(last_idx).hover()
+                    time.sleep(0.4)
+
+                # 画像追加ボタンを複数セレクタで試す
+                btn_selectors = [
+                    'button[aria-label*="画像"]',
+                    'button[title*="画像"]',
+                    'button[aria-label*="image"]',
+                    'label[for*="image"]',
+                    'label[for*="photo"]',
+                    '[class*="imageUpload"]',
+                    '[class*="ImageUpload"]',
+                    '[data-testid*="image"]',
+                ]
+                for sel in btn_selectors:
+                    btn = page.locator(sel).first
+                    try:
+                        if btn.is_visible(timeout=400):
+                            btn.click()
+                            print(f"  画像ボタンクリック: {sel}")
+                            break
+                    except Exception:
+                        continue
+                else:
+                    raise Exception("画像ボタンが見つかりません")
+
+            fc_info.value.set_files(path)
+            time.sleep(4)
+            inserted = True
+            print(f"  画像挿入完了（ボタン経由）: {url}")
+        except Exception as e1:
+            print(f"  方法1（ボタン）失敗: {e1}")
+
+        # 方法2: input[type=file] に直接 set_input_files
+        if not inserted:
+            try:
+                file_inputs = page.locator('input[type="file"]')
+                count = file_inputs.count()
+                print(f"  file input 数: {count}")
+                for i in range(count):
+                    inp = file_inputs.nth(i)
+                    try:
+                        inp.set_input_files(path)
+                        time.sleep(4)
+                        inserted = True
+                        print(f"  画像挿入完了（file input #{i}）: {url}")
+                        break
+                    except Exception as ei:
+                        print(f"  file input #{i} 失敗: {ei}")
+            except Exception as e2:
+                print(f"  方法2（file input）失敗: {e2}")
+
+        if not inserted:
+            print(f"  画像挿入失敗（全方法）: {url}")
+
+    finally:
+        try:
+            os.unlink(path)
+        except Exception:
+            pass
+
+
+def _input_segment_with_images(page, text: str):
+    """テキストを画像マーカー(\x08...\x09)で分割し、画像はアップロード、それ以外は通常挿入"""
+    parts = _IMAGE_SPLIT_RE.split(text)
+    for part in parts:
+        if part.startswith("\x08") and part.endswith("\x09"):
+            _input_image(page, part[1:-1])
+        elif part:
+            _input_segment(page, part)
 
 
 def _input_to_editor(page, text: str):
@@ -173,15 +283,15 @@ def _input_to_editor(page, text: str):
             if not seg:
                 continue
             if j == 0:
-                _input_segment(page, seg)
+                _input_segment_with_images(page, seg)
             else:
-                # \x04 以降：1行目が OGP URL、残りは通常テキスト
+                # \x04 以降：1行目が OGP URL、残りは通常テキスト（画像含む）
                 first_newline = seg.find("\n")
                 if first_newline == -1:
                     _input_ogp_url(page, seg)
                 else:
                     _input_ogp_url(page, seg[:first_newline])
-                    _input_segment(page, seg[first_newline:])
+                    _input_segment_with_images(page, seg[first_newline:])
 
 
 def publish_to_note(title: str, content: str, hashtags: list[str]) -> bool:
