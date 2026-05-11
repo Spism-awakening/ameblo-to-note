@@ -178,7 +178,7 @@ def html_to_plain(html: str) -> str:
         # ── h3：フッター定型文の直前に区切り線を挿入 ──
         if el.name == "h3":
             if not footer_inserted:
-                lines.append("---")
+                lines.append("\x05")  # HR マーカー（note_publisher.py がキーボードで --- を入力）
                 footer_inserted = True
             content_span = el.find("span", attrs={"data-entrydesign-content": True})
             src = content_span if content_span else el
@@ -206,7 +206,7 @@ def html_to_plain(html: str) -> str:
                 continue
 
             if footer_inserted and not voice_inserted and _is_voice_section(el):
-                lines.append("---")
+                lines.append("\x05")  # HR マーカー
                 voice_inserted = True
 
             if _is_bullet_p(el):
@@ -233,13 +233,13 @@ def html_to_plain(html: str) -> str:
                 lines.append(f"\x04{href}")
             continue
 
-    # 連続する空行を最大 1 行に制限
+    # 連続する空行を最大 3 行に制限（アメブロの段落間空行を保持）
     result: list[str] = []
     blank_count = 0
     for line in lines:
         if line.strip() == "":
             blank_count += 1
-            if blank_count <= 1:
+            if blank_count <= 3:
                 result.append("")
         else:
             blank_count = 0

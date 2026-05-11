@@ -58,7 +58,8 @@ def _verify_login(page) -> bool:
 
 
 _BOLD_RE = re.compile(r'\x02(.*?)\x03', re.DOTALL)
-_OGP_MARKER = "\x04"  # content_transformer.py と対応した OGP URL マーカー
+_OGP_MARKER = "\x04"  # OGP URL マーカー（content_transformer.py と対応）
+_HR_MARKER = "\x05"   # 区切り線マーカー（content_transformer.py と対応）
 
 
 def _type_text(page, text: str):
@@ -118,8 +119,20 @@ def _input_segment(page, text: str):
         _type_with_bold(page, text)
 
 
+def _input_hr(page):
+    """区切り線を入力する（--- を入力して Enter でnoteが横線に変換）"""
+    page.keyboard.press("End")
+    page.keyboard.press("Enter")
+    page.keyboard.type("---", delay=5)
+    page.keyboard.press("Enter")
+    time.sleep(0.3)
+
+
 def _input_ogp_url(page, url: str):
     """OGP カード用 URL を入力し、noteが OGP 変換するまで待機する"""
+    # 確実に新しい行へ移動してから URL を入力
+    page.keyboard.press("End")
+    page.keyboard.press("Enter")
     page.keyboard.type(url.strip(), delay=5)
     page.keyboard.press("Enter")
     print(f"  OGPカード変換待機中: {url.strip()}")
@@ -131,22 +144,27 @@ def _input_to_editor(page, text: str):
     editor.click()
     time.sleep(0.5)
 
-    # OGP URL マーカー(\x04)でテキストを分割して処理
-    segments = text.split(_OGP_MARKER)
-    for j, seg in enumerate(segments):
-        if not seg:
-            continue
-        if j == 0:
-            # 最初のセグメント：通常テキスト
-            _input_segment(page, seg)
-        else:
-            # \x04 以降：1行目が OGP URL、残りは通常テキスト
-            first_newline = seg.find("\n")
-            if first_newline == -1:
-                _input_ogp_url(page, seg)
+    # HR マーカー(\x05) → OGP マーカー(\x04) の順で分割して処理
+    hr_segments = text.split(_HR_MARKER)
+    for k, hr_seg in enumerate(hr_segments):
+        if k > 0:
+            _input_hr(page)
+
+        # OGP URL マーカー(\x04)でさらに分割
+        ogp_segments = hr_seg.split(_OGP_MARKER)
+        for j, seg in enumerate(ogp_segments):
+            if not seg:
+                continue
+            if j == 0:
+                _input_segment(page, seg)
             else:
-                _input_ogp_url(page, seg[:first_newline])
-                _input_segment(page, seg[first_newline:])
+                # \x04 以降：1行目が OGP URL、残りは通常テキスト
+                first_newline = seg.find("\n")
+                if first_newline == -1:
+                    _input_ogp_url(page, seg)
+                else:
+                    _input_ogp_url(page, seg[:first_newline])
+                    _input_segment(page, seg[first_newline:])
 
 
 def publish_to_note(title: str, content: str, hashtags: list[str]) -> bool:
