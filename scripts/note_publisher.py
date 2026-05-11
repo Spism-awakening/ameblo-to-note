@@ -173,9 +173,34 @@ def _download_image(url: str) -> str:
         return ""
 
 
+def _close_crop_modal(page):
+    """クロップモーダルが表示されていたら完了ボタンをクリックして閉じる"""
+    try:
+        overlay = page.locator('.CropModal__overlay, [class*="CropModal"]').first
+        if not overlay.is_visible(timeout=2000):
+            return
+        print("  クロップモーダルを検出・閉じます")
+        for sel in ['button:has-text("完了")', 'button:has-text("確定")',
+                    'button:has-text("保存")', 'button:has-text("OK")']:
+            btn = page.locator(sel).first
+            if btn.is_visible(timeout=500):
+                btn.click()
+                print(f"  クロップモーダル確定: {sel}")
+                time.sleep(2)
+                return
+        page.keyboard.press("Enter")
+        time.sleep(1)
+    except Exception:
+        pass
+
+
 def _input_image(page, url: str):
     """画像をダウンロードしてnoteエディタにアップロード挿入する"""
     print(f"  画像挿入開始: {url}")
+
+    # 残留クロップモーダルを先に閉じる
+    _close_crop_modal(page)
+
     path = _download_image(url)
     if not path:
         return
@@ -186,49 +211,21 @@ def _input_image(page, url: str):
         page.keyboard.press("Enter")
         time.sleep(0.5)
 
-        # --- 方法1: ボタンクリック → サブメニュー → ファイル選択 ---
+        # --- 方法1: ボタンクリック → サブメニュー「画像をアップロード」→ ファイル選択 → クロップ確定 ---
         try:
             img_btn = page.locator('button[aria-label*="画像"]').first
             img_btn.wait_for(state="visible", timeout=3000)
             img_btn.click()
             time.sleep(0.8)
 
-            # クリック後に表示された要素をデバッグ出力
-            try:
-                elems = page.evaluate("""() => {
-                    return Array.from(document.querySelectorAll(
-                        'button, label, [role="menuitem"], [role="option"], li, a'
-                    ))
-                    .filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; })
-                    .map(el => ({
-                        tag: el.tagName,
-                        text: (el.innerText || '').trim().substring(0, 50).replace(/\\n/g, ' '),
-                        aria: el.getAttribute('aria-label') || '',
-                        cls: (el.className || '').substring(0, 80)
-                    }));
-                }""")
-                print("  [DEBUG] ボタンクリック後の表示要素:")
-                for e in elems:
-                    if e["text"] or e["aria"]:
-                        print(f"    {e['tag']} | {e['text']!r} | aria={e['aria']!r}")
-            except Exception:
-                pass
-
-            page.screenshot(path="/tmp/note_img_menu.png")
-
-            # サブメニューのアップロードオプションを探してクリック
             submenu_selectors = [
+                'button:has-text("画像をアップロード")',
+                'button:has-text("アップロード")',
                 'button:has-text("PCから")',
                 'button:has-text("ファイル")',
-                'button:has-text("アップロード")',
-                'button:has-text("画像をアップロード")',
                 'button:has-text("ローカル")',
-                '[role="menuitem"]:has-text("画像")',
                 '[role="menuitem"]:has-text("アップロード")',
                 '[role="menuitem"]:has-text("ファイル")',
-                'li:has-text("PC")',
-                'li:has-text("ファイル")',
-                'li:has-text("アップロード")',
             ]
             for sel in submenu_selectors:
                 try:
@@ -237,94 +234,25 @@ def _input_image(page, url: str):
                         with page.expect_file_chooser(timeout=6000) as fc_info:
                             elem.click()
                         fc_info.value.set_files(path)
-                        time.sleep(4)
+                        time.sleep(2)
+                        # クロップモーダルを閉じる
+                        _close_crop_modal(page)
+                        time.sleep(1)
                         inserted = True
-                        print(f"  画像挿入完了（サブメニュー {sel}）")
+                        print(f"  画像挿入完了（{sel}）")
                         break
                 except Exception:
                     continue
 
-            # Escape でメニューを閉じる
             if not inserted:
                 page.keyboard.press("Escape")
                 time.sleep(0.3)
         except Exception as e1:
             print(f"  方法1（ボタン+メニュー）失敗: {e1}")
-
-        # --- 方法2: paste イベント（base64 → File → ClipboardEvent） ---
-        if not inserted:
-            try:
-                ext = os.path.splitext(path)[-1].lower().lstrip(".")
-                mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-                        "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/jpeg")
-                with open(path, "rb") as f:
-                    b64 = base64.b64encode(f.read()).decode()
-                result = page.evaluate(f"""async () => {{
-                    const b64 = '{b64}';
-                    const mime = '{mime}';
-                    const ext = '{ext}';
-                    const bytes = atob(b64);
-                    const arr = new Uint8Array(bytes.length);
-                    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-                    const blob = new Blob([arr], {{type: mime}});
-                    const file = new File([blob], 'image.' + ext, {{type: mime}});
-                    const dt = new DataTransfer();
-                    dt.items.add(file);
-                    const ed = document.querySelector('.ProseMirror');
-                    if (!ed) return 'no-editor';
-                    ed.focus();
-                    ed.dispatchEvent(new ClipboardEvent('paste', {{clipboardData: dt, bubbles: true, cancelable: true}}));
-                    return 'ok';
-                }}""")
-                if result == "ok":
-                    time.sleep(3)
-                    inserted = True
-                    print(f"  画像挿入完了（pasteイベント）")
-                else:
-                    print(f"  方法2（paste）結果: {result}")
-            except Exception as e2:
-                print(f"  方法2（paste）失敗: {e2}")
-
-        # --- 方法3: drop イベント ---
-        if not inserted:
-            try:
-                ext = os.path.splitext(path)[-1].lower().lstrip(".")
-                mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-                        "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/jpeg")
-                with open(path, "rb") as f:
-                    b64 = base64.b64encode(f.read()).decode()
-                result = page.evaluate(f"""async () => {{
-                    const b64 = '{b64}';
-                    const mime = '{mime}';
-                    const ext = '{ext}';
-                    const bytes = atob(b64);
-                    const arr = new Uint8Array(bytes.length);
-                    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-                    const blob = new Blob([arr], {{type: mime}});
-                    const file = new File([blob], 'image.' + ext, {{type: mime}});
-                    const dt = new DataTransfer();
-                    dt.items.add(file);
-                    const ed = document.querySelector('.ProseMirror');
-                    if (!ed) return 'no-editor';
-                    const rect = ed.getBoundingClientRect();
-                    const opts = {{dataTransfer: dt, bubbles: true, cancelable: true,
-                                   clientX: rect.left + 20, clientY: rect.bottom - 10}};
-                    ed.dispatchEvent(new DragEvent('dragenter', opts));
-                    ed.dispatchEvent(new DragEvent('dragover', opts));
-                    ed.dispatchEvent(new DragEvent('drop', opts));
-                    return 'ok';
-                }}""")
-                if result == "ok":
-                    time.sleep(3)
-                    inserted = True
-                    print(f"  画像挿入完了（dropイベント）")
-                else:
-                    print(f"  方法3（drop）結果: {result}")
-            except Exception as e3:
-                print(f"  方法3（drop）失敗: {e3}")
+            _close_crop_modal(page)
 
         if not inserted:
-            print(f"  画像挿入失敗（全方法）: {url}")
+            print(f"  画像挿入失敗: {url}")
 
     finally:
         try:
@@ -424,6 +352,9 @@ def publish_to_note(title: str, content: str, hashtags: list[str]) -> bool:
                     page.keyboard.press("Enter")
                     time.sleep(0.5)
 
+            # 残留モーダルを閉じてから保存
+            _close_crop_modal(page)
+            time.sleep(0.5)
             page.screenshot(path="/tmp/note_02_before_publish.png")
 
             if DRAFT_MODE:

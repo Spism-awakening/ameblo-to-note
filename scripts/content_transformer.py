@@ -267,20 +267,28 @@ def html_to_plain(html: str) -> str:
                 lines.append(f"\x04{href}")
             continue
 
-    # 連続する空行を最大 3 行に制限（アメブロの段落間空行を保持）
+    # 連続する空行を最大 2 行に制限
     result: list[str] = []
     blank_count = 0
     for line in lines:
         if line.strip() == "":
             blank_count += 1
-            if blank_count <= 3:
+            if blank_count <= 2:
                 result.append("")
         else:
             blank_count = 0
-            # 定型文の固定置換を適用
             result.append(FIXED_LINE_MAP.get(line, line))
 
-    return "\n".join(result)
+    # 画像マーカー直前・OGPマーカー直後の空白行を除去して間隔を詰める
+    cleaned: list[str] = []
+    for i, line in enumerate(result):
+        if line.startswith("\x08"):
+            # 画像の直前の空白行を全て除去
+            while cleaned and cleaned[-1] == "":
+                cleaned.pop()
+        cleaned.append(line)
+
+    return "\n".join(cleaned)
 
 
 def select_hashtags(text: str, count: int = 5) -> list[str]:
