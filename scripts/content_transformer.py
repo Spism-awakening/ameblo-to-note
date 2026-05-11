@@ -229,7 +229,8 @@ def html_to_plain(html: str) -> str:
                 href = a_tag.get("href", "")
                 # 直前の「↓テキスト」行を「↓　↓　↓」に変換
                 _apply_arrow_before_ogp(lines)
-                lines.append(href)
+                # \x04 マーカー付きで出力 → note_publisher.py が OGP 変換を待機する
+                lines.append(f"\x04{href}")
             continue
 
     # 連続する空行を最大 1 行に制限

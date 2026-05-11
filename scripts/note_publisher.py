@@ -58,6 +58,7 @@ def _verify_login(page) -> bool:
 
 
 _BOLD_RE = re.compile(r'\x02(.*?)\x03', re.DOTALL)
+_OGP_MARKER = "\x04"  # content_transformer.py と対応した OGP URL マーカー
 
 
 def _type_text(page, text: str):
@@ -69,18 +70,33 @@ def _type_text(page, text: str):
             page.keyboard.press("Enter")
 
 
-def _input_to_editor(page, text: str):
-    editor = page.locator(".ProseMirror").first
-    editor.click()
-    time.sleep(0.5)
+def _insert_html(page, text: str) -> bool:
+    """太字マーカーを <strong> に変換して execCommand で挿入する。成功したら True"""
+    html = _BOLD_RE.sub(
+        lambda m: "<strong>" + m.group(1).replace("\n", "<br>") + "</strong>",
+        text,
+    )
+    html = re.sub(r"\n", "<br>", html)
+    escaped = json.dumps(html)
+    result = page.evaluate(
+        f"""(() => {{
+            const ed = document.querySelector('.ProseMirror');
+            if (!ed) return 'no-editor';
+            ed.focus();
+            return document.execCommand('insertHTML', false, {escaped}) ? 'ok' : 'failed';
+        }})()"""
+    )
+    print(f"  [DEBUG] insertHTML: {result}")
+    return result == "ok"
 
-    # 太文字マーカー(\x02...\x03)で分割し、太文字部分はCtrl+B（keydown/keyup）を適用
+
+def _type_with_bold(page, text: str):
+    """フォールバック：Ctrl+B トグル方式で太字を入力"""
     parts = _BOLD_RE.split(text)
-    print(f"  [DEBUG] 太字パーツ数: {len(parts)}, 太字ブロック: {(len(parts)-1)//2}個")
     for i, part in enumerate(parts):
         if not part:
             continue
-        if i % 2 == 1:  # 奇数インデックス = 太文字コンテンツ
+        if i % 2 == 1:
             page.keyboard.down("Control")
             page.keyboard.press("b")
             page.keyboard.up("Control")
@@ -92,6 +108,45 @@ def _input_to_editor(page, text: str):
             time.sleep(0.05)
         else:
             _type_text(page, part)
+
+
+def _input_segment(page, text: str):
+    """通常テキスト（太字含む）のセグメントを挿入する"""
+    if not text:
+        return
+    if not _insert_html(page, text):
+        _type_with_bold(page, text)
+
+
+def _input_ogp_url(page, url: str):
+    """OGP カード用 URL を入力し、noteが OGP 変換するまで待機する"""
+    page.keyboard.type(url.strip(), delay=5)
+    page.keyboard.press("Enter")
+    print(f"  OGPカード変換待機中: {url.strip()}")
+    time.sleep(4)
+
+
+def _input_to_editor(page, text: str):
+    editor = page.locator(".ProseMirror").first
+    editor.click()
+    time.sleep(0.5)
+
+    # OGP URL マーカー(\x04)でテキストを分割して処理
+    segments = text.split(_OGP_MARKER)
+    for j, seg in enumerate(segments):
+        if not seg:
+            continue
+        if j == 0:
+            # 最初のセグメント：通常テキスト
+            _input_segment(page, seg)
+        else:
+            # \x04 以降：1行目が OGP URL、残りは通常テキスト
+            first_newline = seg.find("\n")
+            if first_newline == -1:
+                _input_ogp_url(page, seg)
+            else:
+                _input_ogp_url(page, seg[:first_newline])
+                _input_segment(page, seg[first_newline:])
 
 
 def publish_to_note(title: str, content: str, hashtags: list[str]) -> bool:
