@@ -132,6 +132,10 @@ def html_to_plain(html: str) -> str:
         bold_text = bold.get_text()
         bold.replace_with(NavigableString(f"{BOLD_START}{bold_text}{BOLD_END}"))
 
+    # <li>タグを改行で区切る（箇条書きが1行にまとまるのを防ぐ）
+    for li in soup.find_all("li"):
+        li.insert_after(NavigableString("\n"))
+
     for p in soup.find_all("p"):
         p.insert_after("\n\n")
 
@@ -142,10 +146,19 @@ def html_to_plain(html: str) -> str:
     return clean.strip()
 
 
+def _strip_ameblo_footer(text: str) -> str:
+    """アメブロ本文に含まれる定型文を削除（NOTE_TEMPLATEと重複するため）"""
+    marker = "今だけ無料"
+    idx = text.find(marker)
+    if idx != -1:
+        return text[:idx].rstrip()
+    return text
+
+
 def transform_for_note(title: str, html_content: str) -> dict:
     plain_text = html_to_plain(html_content)
     clean_title = remove_emoji(title)
-    clean_body = remove_emoji(plain_text)
+    clean_body = _strip_ameblo_footer(remove_emoji(plain_text))
 
     full_content = clean_body + NOTE_TEMPLATE
     hashtags = select_hashtags(clean_title + " " + clean_body)
