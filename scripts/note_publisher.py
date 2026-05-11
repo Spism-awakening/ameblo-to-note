@@ -174,24 +174,61 @@ def _download_image(url: str) -> str:
 
 
 def _close_crop_modal(page):
-    """クロップモーダルが表示されていたら完了ボタンをクリックして閉じる"""
+    """クロップモーダルをJavaScript直接クリックで閉じる（Playwrightのオーバーレイ検出を回避）"""
     try:
         overlay = page.locator('.CropModal__overlay, [class*="CropModal"]').first
         if not overlay.is_visible(timeout=2000):
             return
         print("  クロップモーダルを検出・閉じます")
-        for sel in ['button:has-text("完了")', 'button:has-text("確定")',
-                    'button:has-text("保存")', 'button:has-text("OK")']:
-            btn = page.locator(sel).first
-            if btn.is_visible(timeout=500):
-                btn.click()
-                print(f"  クロップモーダル確定: {sel}")
-                time.sleep(2)
-                return
-        page.keyboard.press("Enter")
-        time.sleep(1)
-    except Exception:
-        pass
+
+        # モーダル内ボタンをデバッグ出力
+        try:
+            btns_info = page.evaluate("""() => {
+                const modal = document.querySelector('.ReactModal__Content');
+                if (!modal) return 'no modal';
+                return JSON.stringify(
+                    Array.from(modal.querySelectorAll('button')).map(b =>
+                        (b.innerText || b.textContent || '').trim().substring(0, 30)
+                    )
+                );
+            }""")
+            print(f"  [DEBUG] モーダル内ボタン: {btns_info}")
+        except Exception:
+            pass
+
+        # JavaScriptでボタンを直接クリック（オーバーレイがあってもクリックできる）
+        result = page.evaluate("""() => {
+            const modal = document.querySelector('.ReactModal__Content');
+            if (!modal) return 'no-modal';
+            const btns = Array.from(modal.querySelectorAll('button'));
+            const confirmTexts = ['完了', '確定', 'OK', '保存', 'Done', 'Confirm'];
+            const cancelTexts = ['キャンセル', '閉じる', '戻る', 'Cancel'];
+            for (const btn of btns) {
+                const text = (btn.innerText || btn.textContent || '').trim();
+                if (confirmTexts.includes(text)) {
+                    btn.click();
+                    return 'clicked:' + text;
+                }
+            }
+            for (let i = btns.length - 1; i >= 0; i--) {
+                const text = (btns[i].innerText || '').trim();
+                if (!cancelTexts.some(t => text.includes(t))) {
+                    btns[i].click();
+                    return 'fallback:' + text.substring(0, 20);
+                }
+            }
+            return 'no-confirm:count=' + btns.length;
+        }""")
+        print(f"  クロップ確定: {result}")
+        time.sleep(2)
+
+        # まだ表示されている場合はEnterで再試行
+        if page.locator('.CropModal__overlay').is_visible(timeout=1000):
+            print("  クロップモーダルがまだ表示中、再試行")
+            page.keyboard.press("Enter")
+            time.sleep(1)
+    except Exception as e:
+        print(f"  クロップモーダル処理エラー: {e}")
 
 
 def _input_image(page, url: str):
@@ -280,6 +317,8 @@ def _input_to_editor(page, text: str):
     hr_segments = text.split(_HR_MARKER)
     for k, hr_seg in enumerate(hr_segments):
         if k > 0:
+            # 区切り線の前に残留クロップモーダルを必ず閉じる（モーダルが開いていると---がモーダルに入力される）
+            _close_crop_modal(page)
             _input_hr(page)
 
         # OGP URL マーカー(\x04)でさらに分割
