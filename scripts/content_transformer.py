@@ -130,12 +130,14 @@ def _process_inline(node, in_bold: bool = False) -> str:
     elif name == "a":
         href = node.get("href", "")
         img_tag = node.find("img")
-        if img_tag and "user_images" in href:
-            src = img_tag.get("src", href)
-            return f"\x08{src}\x0e"
-        if not img_tag:
-            return href
-        return ""
+        if img_tag:
+            img_src = img_tag.get("src", "")
+            if "user_images" in img_src:
+                return f"\x08{img_src}\x0e"
+            if "user_images" in href:
+                return f"\x08{href}\x0e"
+            return ""
+        return href
 
     elif name == "iframe":
         src = node.get("src", "")
