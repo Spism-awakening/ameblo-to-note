@@ -57,6 +57,13 @@ def _get_ameblo_emoji(src: str) -> str:
 
 def _is_empty_p(tag: Tag) -> bool:
     """`&nbsp;` や全角スペースのみの実質的に空の p タグ"""
+    # user_images 画像リンクを含む場合は空ではない
+    for a in tag.find_all("a"):
+        if "user_images" in a.get("href", ""):
+            return False
+    for img in tag.find_all("img"):
+        if "user_images" in img.get("src", ""):
+            return False
     text = tag.get_text()
     return text.strip(" 　 \t\n\r") == ""
 
@@ -114,7 +121,7 @@ def _process_inline(node, in_bold: bool = False) -> str:
     elif name == "img":
         src = node.get("src", "")
         if "user_images" in src:
-            return f"\x08{src}\x09"
+            return f"\x08{src}\x0e"
         return _get_ameblo_emoji(src)
 
     elif name == "br":
@@ -125,7 +132,7 @@ def _process_inline(node, in_bold: bool = False) -> str:
         img_tag = node.find("img")
         if img_tag and "user_images" in href:
             src = img_tag.get("src", href)
-            return f"\x08{src}\x09"
+            return f"\x08{src}\x0e"
         if not img_tag:
             return href
         return ""

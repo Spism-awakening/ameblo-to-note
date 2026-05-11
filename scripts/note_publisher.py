@@ -61,8 +61,8 @@ def _verify_login(page) -> bool:
 
 _BOLD_RE = re.compile(r'\x02(.*?)\x03', re.DOTALL)
 _HEADING_RE = re.compile(r'\x06(.*?)\x07', re.DOTALL)
-_IMAGE_RE = re.compile(r'\x08(.*?)\x09', re.DOTALL)
-_IMAGE_SPLIT_RE = re.compile(r'(\x08.*?\x09)', re.DOTALL)
+_IMAGE_RE = re.compile(r'\x08(.*?)\x0e', re.DOTALL)
+_IMAGE_SPLIT_RE = re.compile(r'(\x08.*?\x0e)', re.DOTALL)
 _OGP_MARKER = "\x04"
 _HR_MARKER = "\x05"
 
@@ -257,10 +257,10 @@ def _input_image(page, url: str):
 
 
 def _input_segment_with_images(page, text: str):
-    """テキストを画像マーカー(\x08...\x09)で分割し、画像はアップロード、それ以外は通常挿入"""
+    """テキストを画像マーカー(\x08...\x0e)で分割し、画像はアップロード、それ以外は通常挿入"""
     parts = _IMAGE_SPLIT_RE.split(text)
     for part in parts:
-        if part.startswith("\x08") and part.endswith("\x09"):
+        if part.startswith("\x08") and part.endswith("\x0e"):
             _input_image(page, part[1:-1])
         elif part:
             _input_segment(page, part)
