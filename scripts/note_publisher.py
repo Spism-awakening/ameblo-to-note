@@ -57,17 +57,32 @@ def _verify_login(page) -> bool:
     return True
 
 
+_BOLD_RE = re.compile(r'\x02(.*?)\x03', re.DOTALL)
+
+
+def _type_text(page, text: str):
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        if line:
+            page.keyboard.type(line, delay=5)
+        if i < len(lines) - 1:
+            page.keyboard.press("Enter")
+
+
 def _input_to_editor(page, text: str):
     editor = page.locator(".ProseMirror").first
     editor.click()
     time.sleep(0.5)
 
-    paragraphs = text.split("\n")
-    for i, para in enumerate(paragraphs):
-        if para:
-            page.keyboard.type(para, delay=5)
-        if i < len(paragraphs) - 1:
-            page.keyboard.press("Enter")
+    # 太文字マーカー(\x02...\x03)で分割し、太文字部分はCtrl+Bを適用
+    parts = _BOLD_RE.split(text)
+    for i, part in enumerate(parts):
+        if i % 2 == 1:  # 奇数インデックス = 太文字コンテンツ
+            page.keyboard.press("Control+b")
+            _type_text(page, part)
+            page.keyboard.press("Control+b")
+        else:
+            _type_text(page, part)
 
 
 def publish_to_note(title: str, content: str, hashtags: list[str]) -> bool:

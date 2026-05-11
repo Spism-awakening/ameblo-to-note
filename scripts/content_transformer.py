@@ -1,5 +1,5 @@
 import re
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 
 EMOJI_PATTERN = re.compile(
     "["
@@ -19,6 +19,10 @@ EMOJI_PATTERN = re.compile(
     "]+",
     re.UNICODE,
 )
+
+# 太文字マーカー（ASCII制御文字なので絵文字除去の影響を受けない）
+BOLD_START = "\x02"
+BOLD_END = "\x03"
 
 ALL_HASHTAGS = [
     "#スピリチュアル",
@@ -40,20 +44,27 @@ KEYWORDS_MAP = {
     "#自己変容": ["自己変容", "目覚め", "悟り", "変容", "覚醒", "解放"],
 }
 
-NOTE_TEMPLATE = """\n\n---\n
+NOTE_TEMPLATE = """
+
+
 # 今だけ無料・72時間限定公開
 
 ＼恋愛も収入も停滞中のスピ迷子さんへ／
 
-10年悩んでたことが、たった40分で書き換わった
+10年悩んでたことが、
+たった40分で書き換わった
+
 愛・お金・美しさが波のように連鎖する
 性エネルギー覚醒変容の法則
 
-【性エネルギー覚醒ウェビナー】が今すぐ受け取れます！
+【性エネルギー覚醒ウェビナー】が
 
-[今すぐ無料で受け取る！](https://bigbangawakenings.com/lp/webinar3/)
+今すぐ受け取れます！
 
----
+今すぐ無料で受け取る！
+↓ ↓ ↓
+https://bigbangawakenings.com/lp/webinar3/
+
 
 # 体験者のリアルな声、続々と届いてます
 
@@ -61,9 +72,14 @@ NOTE_TEMPLATE = """\n\n---\n
 「スピを極めたつもりだった私が、本当の鍵に出会った」
 「愛される感覚が、毎日の中に自然にあふれています」
 
-あなたの未来が重なる声が、きっと見つかります。
+他にも、涙なしでは読めない感想がいっぱい...
 
-[こちらからご覧いただけます！](https://spism.my.canva.site/)
+あなたの未来が重なる声が、
+きっと見つかります。
+
+こちらからご覧いただけます！
+↓
+https://spism.my.canva.site/
 
 愛と祈りを込めて
 Mako
@@ -92,19 +108,20 @@ def select_hashtags(text: str, count: int = 5) -> list[str]:
 def html_to_plain(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
 
-    # <br>タグを改行に変換
     for br in soup.find_all("br"):
         br.replace_with("\n")
 
-    # <p>タグを段落に変換
+    # 太文字をマーカーで保持（noteエディターでCtrl+Bを使って再現）
+    for bold in soup.find_all(["b", "strong"]):
+        bold_text = bold.get_text()
+        bold.replace_with(NavigableString(f"{BOLD_START}{bold_text}{BOLD_END}"))
+
     for p in soup.find_all("p"):
         p.insert_after("\n\n")
 
     text = soup.get_text(separator="")
     lines = [line.strip() for line in text.splitlines()]
     clean = "\n".join(lines)
-
-    # 連続する3行以上の空行を2行に圧縮
     clean = re.sub(r"\n{3,}", "\n\n", clean)
     return clean.strip()
 
