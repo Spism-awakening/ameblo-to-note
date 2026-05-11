@@ -2,7 +2,7 @@ name: Ameblo to Note Sync
 
 on:
   schedule:
-    - cron: "*/30 * * * *"  # 30分ごとに実行（無料枠内：約1,600分/月）
+    - cron: "*/5 * * * *"   # 5分ごとに実行（パブリックリポジトリのため無制限無料）
   workflow_dispatch:
     inputs:
       draft_mode:
