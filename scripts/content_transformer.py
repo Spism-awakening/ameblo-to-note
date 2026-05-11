@@ -132,8 +132,9 @@ def html_to_plain(html: str) -> str:
         bold_text = bold.get_text()
         bold.replace_with(NavigableString(f"{BOLD_START}{bold_text}{BOLD_END}"))
 
-    # <li>タグを改行で区切る（箇条書きが1行にまとまるのを防ぐ）
+    # <li>タグを「・」プレフィックス付きの行に変換
     for li in soup.find_all("li"):
+        li.insert_before(NavigableString("・"))
         li.insert_after(NavigableString("\n"))
 
     for p in soup.find_all("p"):
