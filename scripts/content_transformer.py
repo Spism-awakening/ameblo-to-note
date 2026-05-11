@@ -5,6 +5,14 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 BOLD_START = "\x02"
 BOLD_END = "\x03"
 
+# ── 定型文の固定置換（HTMLが変わっても絶対に変わらない） ──
+# キー：変換後に現れるテキスト（完全一致）
+# 値：最終的に出力したいテキスト
+FIXED_LINE_MAP = {
+    "今すぐ受け取れます↓": "今すぐ受け取れます✨",
+    "こちらからご覧いただけます": "こちらからご覧いただけます✨",
+}
+
 # アメブロ絵文字img (src に含まれる文字列) → 置換テキスト
 AMEBLO_EMOJI_MAP = {
     "char3/533.png": "・",   # 丸ブルー（箇条書き専用）
@@ -260,7 +268,8 @@ def html_to_plain(html: str) -> str:
                 result.append("")
         else:
             blank_count = 0
-            result.append(line)
+            # 定型文の固定置換を適用
+            result.append(FIXED_LINE_MAP.get(line, line))
 
     return "\n".join(result)
 
