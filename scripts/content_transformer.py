@@ -114,7 +114,7 @@ def _process_inline(node, in_bold: bool = False) -> str:
     elif name == "img":
         src = node.get("src", "")
         if "user_images" in src:
-            return ""
+            return f"\x08{src}\x09"
         return _get_ameblo_emoji(src)
 
     elif name == "br":
@@ -122,9 +122,11 @@ def _process_inline(node, in_bold: bool = False) -> str:
 
     elif name == "a":
         href = node.get("href", "")
-        if node.find("img") and "user_images" in href:
-            return ""
-        if not node.find("img"):
+        img_tag = node.find("img")
+        if img_tag and "user_images" in href:
+            src = img_tag.get("src", href)
+            return f"\x08{src}\x09"
+        if not img_tag:
             return href
         return ""
 

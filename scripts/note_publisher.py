@@ -59,8 +59,11 @@ def _verify_login(page) -> bool:
 
 _BOLD_RE = re.compile(r'\x02(.*?)\x03', re.DOTALL)
 _HEADING_RE = re.compile(r'\x06(.*?)\x07', re.DOTALL)
+_IMAGE_RE = re.compile(r'\x08(.*?)\x09', re.DOTALL)
 _OGP_MARKER = "\x04"  # OGP URL マーカー（content_transformer.py と対応）
 _HR_MARKER = "\x05"   # 区切り線マーカー（content_transformer.py と対応）
+_IMAGE_START = "\x08"  # 画像 URL マーカー開始
+_IMAGE_END = "\x09"    # 画像 URL マーカー終了
 
 
 def _type_text(page, text: str):
@@ -73,7 +76,7 @@ def _type_text(page, text: str):
 
 
 def _insert_html(page, text: str) -> bool:
-    """太字・見出しマーカーを HTML タグに変換して execCommand で挿入する。成功したら True"""
+    """太字・見出し・画像マーカーを HTML タグに変換して execCommand で挿入する。成功したら True"""
     # 見出しマーカー(\x06...\x07) → <h2> タグ（前後の改行も吸収）
     html = re.sub(
         r"\n?\x06(.*?)\x07\n?",
@@ -84,6 +87,11 @@ def _insert_html(page, text: str) -> bool:
     # 太字マーカー(\x02...\x03) → <strong> タグ
     html = _BOLD_RE.sub(
         lambda m: "<strong>" + m.group(1).replace("\n", "<br>") + "</strong>",
+        html,
+    )
+    # 画像マーカー(\x08...\x09) → <img> タグ（前後に改行を入れて独立した行に）
+    html = _IMAGE_RE.sub(
+        lambda m: '<br><img src="' + m.group(1) + '" style="max-width:100%"><br>',
         html,
     )
     html = re.sub(r"\n", "<br>", html)
