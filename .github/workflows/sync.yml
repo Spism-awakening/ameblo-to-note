@@ -2,7 +2,7 @@ name: Ameblo to Note Sync
 
 on:
   schedule:
-    - cron: "*/5 * * * *"  # 5分ごとに実行（アメブロ更新を素早く検知）
+    - cron: "*/30 * * * *"  # 30分ごとに実行（無料枠内：約1,600分/月）
   workflow_dispatch:
     inputs:
       draft_mode:
@@ -30,12 +30,31 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
+      # 新記事がなければここで終了（Playwright インストールをスキップして高速終了）
+      - name: Check for new posts
+        id: rss_check
+        env:
+          AMEBLO_RSS_URL: "https://ameblo.jp/pulinet/rss20.xml"
+        run: |
+          pip install feedparser --quiet
+          cd scripts
+          RESULT=$(python3 -c "
+          from rss_monitor import fetch_new_entries
+          entries = fetch_new_entries()
+          print('true' if entries else 'false')
+          ")
+          echo "has_new=$RESULT" >> $GITHUB_OUTPUT
+          echo "新記事チェック結果: $RESULT"
+
+      # 新記事があるときだけ Playwright をインストール（時間・コストを節約）
       - name: Install dependencies
+        if: steps.rss_check.outputs.has_new == 'true'
         run: |
           pip install -r requirements.txt
           playwright install --with-deps chromium
 
       - name: Run sync
+        if: steps.rss_check.outputs.has_new == 'true'
         env:
           NOTE_COOKIES: ${{ secrets.NOTE_COOKIES }}
           AMEBLO_RSS_URL: "https://ameblo.jp/pulinet/rss20.xml"
@@ -45,7 +64,7 @@ jobs:
           python main.py
 
       - name: Upload debug screenshots
-        if: always()
+        if: steps.rss_check.outputs.has_new == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: debug-screenshots
@@ -53,7 +72,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Save published cache
-        if: always()
+        if: steps.rss_check.outputs.has_new == 'true'
         run: |
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
