@@ -86,8 +86,24 @@ Mako
 """
 
 
+def _emoji_replacer(match: re.Match) -> str:
+    pos = match.end()
+    start = match.start()
+    text = match.string
+    char_after = text[pos] if pos < len(text) else "\n"
+    char_before = text[start - 1] if start > 0 else "\n"
+    # 行頭の絵文字（箇条書きマーカー） → ・に置換
+    if char_before in "\n\r" or start == 0:
+        return "・"
+    # 行末の絵文字（句読点として使われている） → 。に置換
+    if char_after in "\n\r" or pos >= len(text):
+        if char_before not in "\n\r。、！？!?":
+            return "。"
+    return ""
+
+
 def remove_emoji(text: str) -> str:
-    return EMOJI_PATTERN.sub("", text).strip()
+    return EMOJI_PATTERN.sub(_emoji_replacer, text).strip()
 
 
 def select_hashtags(text: str, count: int = 5) -> list[str]:
