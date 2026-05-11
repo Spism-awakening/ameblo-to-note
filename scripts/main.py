@@ -35,12 +35,10 @@ def main():
         )
 
         if success:
+            # 下書き・公開どちらの場合も記録して重複処理を防ぐ
+            mark_as_published(entry["id"])
             if DRAFT_MODE:
-                # 下書きモードでは published.json を更新しない
-                # → 本番実行時に改めて投稿対象になる
-                print(f"  ※下書きモードのため投稿済み記録はスキップします")
-            else:
-                mark_as_published(entry["id"])
+                print(f"  下書き保存済みとして記録しました")
         else:
             print(f"投稿失敗（スキップ）: {entry['title']}")
 

@@ -2,17 +2,17 @@ name: Ameblo to Note Sync
 
 on:
   schedule:
-    - cron: "0 * * * *"   # 毎時0分に自動実行（1時間ごと）
+    - cron: "*/5 * * * *"  # 5分ごとに実行（アメブロ更新を素早く検知）
   workflow_dispatch:
     inputs:
       draft_mode:
         description: '下書きモード（true=下書き保存、false=公開）'
         required: false
-        default: 'false'
+        default: 'true'
         type: choice
         options:
-          - 'false'
           - 'true'
+          - 'false'
 
 jobs:
   sync:
@@ -39,7 +39,7 @@ jobs:
         env:
           NOTE_COOKIES: ${{ secrets.NOTE_COOKIES }}
           AMEBLO_RSS_URL: "https://ameblo.jp/pulinet/rss20.xml"
-          DRAFT_MODE: ${{ github.event.inputs.draft_mode || 'false' }}
+          DRAFT_MODE: ${{ github.event.inputs.draft_mode || 'true' }}
         run: |
           cd scripts
           python main.py
