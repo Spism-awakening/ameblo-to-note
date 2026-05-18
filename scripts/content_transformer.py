@@ -217,6 +217,15 @@ def html_to_plain(html: str) -> str:
 
         # ── p タグ ──
         if el.name == "p":
+            # 本文内OGPカード（<p><a class="ogpCard_link" href="...">）
+            ogp_link = el.find("a", class_="ogpCard_link")
+            if ogp_link:
+                href = ogp_link.get("href", "")
+                if href:
+                    _apply_arrow_before_ogp(lines)
+                    lines.append(f"\x04{href}")
+                continue
+
             iframe = el.find("iframe")
             if iframe:
                 src = iframe.get("src", "")
