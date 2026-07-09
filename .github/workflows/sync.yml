@@ -14,11 +14,6 @@ on:
           - 'true'
           - 'false'
 
-# 同時実行を防止（前の実行が終わるまで次は待機）
-concurrency:
-  group: sync
-  cancel-in-progress: false
-
 jobs:
   sync:
     runs-on: ubuntu-latest
